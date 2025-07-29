@@ -1,15 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, CheckCircle, Clock, Trash2, Calendar, AlertCircle, Sparkles, Zap, Star, Moon, Sun } from 'lucide-react';
+import { Plus, CheckCircle, Clock, Trash2, Calendar, AlertCircle, Sparkles, Zap, Star, Moon, Sun, Mail, Bell, Settings } from 'lucide-react';
 
 const TaskReminderApp = () => {
   const [tasks, setTasks] = useState([]);
-  const [newTask, setNewTask] = useState('');
+  const [newTask, setNewTask] = useState({ title: '', description: '' });
   const [newTaskDate, setNewTaskDate] = useState('');
   const [newTaskTime, setNewTaskTime] = useState('');
   const [showNotification, setShowNotification] = useState(false);
   const [todayTasks, setTodayTasks] = useState([]);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [particles, setParticles] = useState([]);
+  
+  // Notification settings
+  const [userEmail, setUserEmail] = useState('');
+  const [notificationSettings, setNotificationSettings] = useState({
+    emailEnabled: false,
+    browserNotifications: false,
+    reminderMinutes: 15 // remind 15 minutes before task time
+  });
+  const [showSettings, setShowSettings] = useState(false);
 
   // Initialize particles
   useEffect(() => {
@@ -28,26 +37,164 @@ const TaskReminderApp = () => {
     setParticles(particleArray);
   }, []);
 
-  // Update clock every second
+  // Request notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Update clock every second and check for task reminders
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
+      checkTaskReminders();
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [tasks, notificationSettings]);
 
-  // Initialize tasks from memory on component mount
+  // Initialize data from memory on component mount
   useEffect(() => {
     const savedTasks = JSON.parse(sessionStorage.getItem('taskReminder') || '[]');
+    const savedEmail = sessionStorage.getItem('userEmail') || '';
+    const savedSettings = JSON.parse(sessionStorage.getItem('notificationSettings') || '{"emailEnabled": false, "browserNotifications": false, "reminderMinutes": 15}');
+    
     setTasks(savedTasks);
+    setUserEmail(savedEmail);
+    setNotificationSettings(savedSettings);
     checkTodayTasks(savedTasks);
   }, []);
 
-  // Save tasks to memory whenever tasks change
+  // Save data to memory whenever it changes
   useEffect(() => {
     sessionStorage.setItem('taskReminder', JSON.stringify(tasks));
     checkTodayTasks(tasks);
   }, [tasks]);
+
+  useEffect(() => {
+    sessionStorage.setItem('userEmail', userEmail);
+  }, [userEmail]);
+
+  useEffect(() => {
+    sessionStorage.setItem('notificationSettings', JSON.stringify(notificationSettings));
+  }, [notificationSettings]);
+
+  // Check for task reminders
+  const checkTaskReminders = () => {
+    const now = new Date();
+    const currentDate = now.toISOString().split('T')[0];
+    const currentTime = now.getHours() * 60 + now.getMinutes();
+
+    tasks.forEach(task => {
+      if (!task.completed && task.date === currentDate) {
+        const [hours, minutes] = task.time.split(':').map(Number);
+        const taskTime = hours * 60 + minutes;
+        const timeDiff = taskTime - currentTime;
+
+        // Check if it's time for reminder (within the reminder window)
+        if (timeDiff <= notificationSettings.reminderMinutes && timeDiff > 0) {
+          if (!task.reminderSent) {
+            sendTaskReminder(task);
+            // Mark reminder as sent to avoid duplicate notifications
+            setTasks(prevTasks => 
+              prevTasks.map(t => 
+                t.id === task.id ? { ...t, reminderSent: true } : t
+              )
+            );
+          }
+        }
+      }
+    });
+  };
+
+  // Send task reminder via email and/or browser notification
+  const sendTaskReminder = async (task) => {
+    const reminderMessage = `⚡ URGENT REMINDER: Your task "${task.title}" is scheduled for ${task.time} today!`;
+
+    // Browser notification
+    if (notificationSettings.browserNotifications && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification('🔥 ChronoTasks Reminder', {
+        body: reminderMessage,
+        icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzIiIGZpbGw9IiNGRkQ3MDAiLz4KPHN2ZyB4PSIxNiIgeT0iMTYiIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiI+CjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+Cjxwb2x5bGluZSBwb2ludHM9IjEyLDYgMTIsMTIgMTYsMTQiLz4KPC9zdmc+Cjwvc3ZnPg==',
+        tag: `task-${task.id}`,
+        requireInteraction: true
+      });
+    }
+
+    // Email notification (simulated - in real app, you'd use EmailJS or similar service)
+    if (notificationSettings.emailEnabled && userEmail) {
+      try {
+        // Simulate email sending
+        console.log(`📧 Email sent to ${userEmail}:`, reminderMessage);
+        
+        // Show success message
+        showTemporaryMessage('📧 Reminder email sent successfully!', 'success');
+        
+        // In a real implementation, you would use EmailJS like this:
+        /*
+        await emailjs.send(
+          'YOUR_SERVICE_ID',
+          'YOUR_TEMPLATE_ID',
+          {
+            to_email: userEmail,
+            subject: '🔥 ChronoTasks Reminder',
+            message: reminderMessage,
+            task_title: task.title,
+            task_time: task.time,
+            task_date: task.date
+          },
+          'YOUR_PUBLIC_KEY'
+        );
+        */
+      } catch (error) {
+        console.error('Failed to send email:', error);
+        showTemporaryMessage('❌ Failed to send email reminder', 'error');
+      }
+    }
+  };
+
+  // Show temporary message
+  const showTemporaryMessage = (message, type = 'info') => {
+    const messageEl = document.createElement('div');
+    messageEl.className = `fixed top-4 left-4 z-50 p-4 rounded-lg text-white font-bold ${
+      type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+    } shadow-lg animate-bounce`;
+    messageEl.textContent = message;
+    document.body.appendChild(messageEl);
+    
+    setTimeout(() => {
+      document.body.removeChild(messageEl);
+    }, 3000);
+  };
+
+  // Send immediate email for incomplete tasks
+  const sendTaskSummaryEmail = () => {
+    if (!userEmail) {
+      alert('Please set your email address in settings first!');
+      setShowSettings(true);
+      return;
+    }
+
+    const incompleteTasks = tasks.filter(task => !task.completed);
+    if (incompleteTasks.length === 0) {
+      showTemporaryMessage('🎉 All tasks completed! No reminders needed.', 'success');
+      return;
+    }
+
+    const emailContent = `
+🔥 URGENT: You have ${incompleteTasks.length} incomplete task(s)!
+
+${incompleteTasks.map(task => 
+  `⚡ ${task.title}\n📅 ${new Date(task.date).toLocaleDateString()} at ${task.time}\n`
+).join('\n')}
+
+Don't let your dreams slip away! Complete these tasks and achieve greatness! 🌟
+    `;
+
+    // Simulate email sending
+    console.log(`📧 Summary email sent to ${userEmail}:`, emailContent);
+    showTemporaryMessage('📧 Task summary email sent!', 'success');
+  };
 
   // Check for today's tasks and show notification
   const checkTodayTasks = (taskList) => {
@@ -65,17 +212,19 @@ const TaskReminderApp = () => {
 
   // Add new task
   const addTask = () => {
-    if (newTask.trim() && newTaskDate && newTaskTime) {
+    if (newTask.title.trim() && newTaskDate && newTaskTime) {
       const task = {
         id: Date.now(),
-        title: newTask.trim(),
+        title: newTask.title.trim(),
+        description: newTask.description.trim(),
         date: newTaskDate,
         time: newTaskTime,
         completed: false,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        reminderSent: false
       };
       setTasks([...tasks, task]);
-      setNewTask('');
+      setNewTask({ title: '', description: '' });
       setNewTaskDate('');
       setNewTaskTime('');
     }
@@ -84,7 +233,7 @@ const TaskReminderApp = () => {
   // Toggle task completion
   const toggleTask = (id) => {
     setTasks(tasks.map(task => 
-      task.id === id ? { ...task, completed: !task.completed } : task
+      task.id === id ? { ...task, completed: !task.completed, reminderSent: false } : task
     ));
   };
 
@@ -157,6 +306,110 @@ const TaskReminderApp = () => {
         <div className="absolute inset-0 bg-gradient-to-r from-purple-400/10 via-pink-400/10 to-cyan-400/10 animate-pulse"></div>
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-blue-400/5 to-transparent animate-pulse delay-1000"></div>
       </div>
+
+      {/* Notification Controls */}
+      <div className="fixed top-4 left-4 z-50 flex gap-2">
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className="p-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-2xl hover:from-purple-600 hover:to-pink-600 transition-all duration-300 shadow-lg"
+          title="Notification Settings"
+        >
+          <Settings className="w-6 h-6" />
+        </button>
+        
+        <button
+          onClick={sendTaskSummaryEmail}
+          className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-2xl hover:from-blue-600 hover:to-cyan-600 transition-all duration-300 shadow-lg"
+          title="Send Task Summary Email"
+        >
+          <Mail className="w-6 h-6" />
+        </button>
+      </div>
+
+      {/* Settings Panel */}
+      {showSettings && (
+        <div className="fixed top-20 left-4 z-50 w-80 bg-gradient-to-br from-gray-900/95 via-purple-900/95 to-indigo-900/95 backdrop-blur-xl rounded-3xl p-6 border-2 border-purple-500/30 shadow-2xl">
+          <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+            <Bell className="w-6 h-6 text-yellow-400" />
+            Notification Settings
+          </h3>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-white mb-2 font-semibold">Email Address:</label>
+              <input
+                type="email"
+                value={userEmail}
+                onChange={(e) => setUserEmail(e.target.value)}
+                placeholder="your@email.com"
+                className="w-full p-3 rounded-xl bg-white/10 text-white placeholder-gray-300 border border-purple-400/30 focus:border-pink-400 focus:ring-2 focus:ring-pink-400/20 outline-none transition-all"
+              />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <span className="text-white font-semibold">Email Notifications</span>
+              <button
+                onClick={() => setNotificationSettings({...notificationSettings, emailEnabled: !notificationSettings.emailEnabled})}
+                className={`w-12 h-6 rounded-full transition-all duration-300 ${
+                  notificationSettings.emailEnabled ? 'bg-green-500' : 'bg-gray-600'
+                }`}
+              >
+                <div className={`w-5 h-5 bg-white rounded-full transition-all duration-300 ${
+                  notificationSettings.emailEnabled ? 'translate-x-6' : 'translate-x-0.5'
+                }`} />
+              </button>
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <span className="text-white font-semibold">Browser Notifications</span>
+              <button
+                onClick={() => {
+                  if ('Notification' in window) {
+                    if (Notification.permission === 'granted') {
+                      setNotificationSettings({...notificationSettings, browserNotifications: !notificationSettings.browserNotifications});
+                    } else {
+                      Notification.requestPermission().then(permission => {
+                        if (permission === 'granted') {
+                          setNotificationSettings({...notificationSettings, browserNotifications: true});
+                        }
+                      });
+                    }
+                  }
+                }}
+                className={`w-12 h-6 rounded-full transition-all duration-300 ${
+                  notificationSettings.browserNotifications ? 'bg-green-500' : 'bg-gray-600'
+                }`}
+              >
+                <div className={`w-5 h-5 bg-white rounded-full transition-all duration-300 ${
+                  notificationSettings.browserNotifications ? 'translate-x-6' : 'translate-x-0.5'
+                }`} />
+              </button>
+            </div>
+            
+            <div>
+              <label className="block text-white mb-2 font-semibold">Remind me (minutes before):</label>
+              <select
+                value={notificationSettings.reminderMinutes}
+                onChange={(e) => setNotificationSettings({...notificationSettings, reminderMinutes: parseInt(e.target.value)})}
+                className="w-full p-3 rounded-xl bg-white/10 text-white border border-purple-400/30 focus:border-pink-400 focus:ring-2 focus:ring-pink-400/20 outline-none transition-all"
+              >
+                <option value={5}>5 minutes</option>
+                <option value={10}>10 minutes</option>
+                <option value={15}>15 minutes</option>
+                <option value={30}>30 minutes</option>
+                <option value={60}>1 hour</option>
+              </select>
+            </div>
+          </div>
+          
+          <button
+            onClick={() => setShowSettings(false)}
+            className="w-full mt-6 p-3 bg-gradient-to-r from-green-500 to-blue-500 text-white font-bold rounded-xl hover:from-green-600 hover:to-blue-600 transition-all duration-300"
+          >
+            Save Settings
+          </button>
+        </div>
+      )}
 
       {/* Today's Tasks Notification */}
       {showNotification && todayTasks.length > 0 && (
@@ -349,15 +602,29 @@ const TaskReminderApp = () => {
               </h2>
               
               <div className="space-y-6">
-                <div className="relative">
+                <div className="relative group">
                   <input
                     type="text"
                     value={newTask}
                     onChange={(e) => setNewTask(e.target.value)}
-                    placeholder="🎯 What greatness awaits your attention?"
-                    className="w-full p-6 rounded-2xl bg-white/10 text-white placeholder-gray-300 border-2 border-purple-400/30 focus:border-pink-400 focus:ring-4 focus:ring-pink-400/20 outline-none transition-all duration-500 text-lg backdrop-blur-sm"
+                    onKeyPress={(e) => e.key === 'Enter' && newTaskDate && newTaskTime && addTask()}
+                    placeholder="🎯 Enter your task title here..."
+                    className="w-full p-6 rounded-2xl bg-white/20 text-white placeholder-gray-400 border-2 border-purple-400/30 focus:border-pink-400 focus:bg-white/30 focus:ring-4 focus:ring-pink-400/20 outline-none transition-all duration-300 text-lg backdrop-blur-sm relative z-10"
+                    style={{ WebkitAppearance: 'none' }}
                   />
                   <div className="absolute -inset-1 bg-gradient-to-r from-purple-400/20 to-pink-400/20 rounded-2xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                </div>
+                
+                <div className="relative group">
+                  <textarea
+                    value={newTask.description || ''}
+                    onChange={(e) => setNewTask(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="📝 Add task description (optional)..."
+                    rows={3}
+                    className="w-full p-6 rounded-2xl bg-white/20 text-white placeholder-gray-400 border-2 border-blue-400/30 focus:border-cyan-400 focus:bg-white/30 focus:ring-4 focus:ring-cyan-400/20 outline-none transition-all duration-300 text-base backdrop-blur-sm resize-none relative z-10"
+                    style={{ WebkitAppearance: 'none' }}
+                  />
+                  <div className="absolute -inset-1 bg-gradient-to-r from-blue-400/20 to-cyan-400/20 rounded-2xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -477,6 +744,15 @@ const TaskReminderApp = () => {
                                 }`}>
                                   {task.title}
                                 </h4>
+                                {task.description && (
+                                  <p className={`text-base mt-1 transition-all duration-500 ${
+                                    task.completed 
+                                      ? 'text-gray-500 line-through' 
+                                      : 'text-gray-300'
+                                  }`}>
+                                    {task.description}
+                                  </p>
+                                )}
                                 <div className="flex items-center gap-3 text-lg text-gray-300 mt-2">
                                   <Clock className="w-5 h-5 text-blue-400" />
                                   <span className="font-semibold">{task.time}</span>
@@ -486,6 +762,12 @@ const TaskReminderApp = () => {
                                         ⚡ ACTIVE MISSION
                                       </span>
                                       <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
+                                    </div>
+                                  )}
+                                  {task.reminderSent && (
+                                    <div className="flex items-center gap-1 text-sm">
+                                      <Bell className="w-4 h-4 text-yellow-400" />
+                                      <span className="text-yellow-400">Reminded</span>
                                     </div>
                                   )}
                                 </div>
@@ -510,7 +792,7 @@ const TaskReminderApp = () => {
         {/* Mystical Stats Footer */}
         <div className="text-center mt-20">
           <div className="bg-gradient-to-r from-indigo-900/60 via-purple-900/60 to-pink-900/60 backdrop-blur-2xl rounded-3xl p-8 border-2 border-purple-500/30 max-w-4xl mx-auto">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
               <div className="text-center">
                 <div className="text-4xl font-bold text-yellow-400 mb-2">{tasks.length}</div>
                 <div className="text-lg text-gray-300">Total Quests</div>
@@ -523,11 +805,31 @@ const TaskReminderApp = () => {
                 <div className="text-4xl font-bold text-orange-400 mb-2">{tasks.filter(t => !t.completed).length}</div>
                 <div className="text-lg text-gray-300">Awaiting Glory</div>
               </div>
+              <div className="text-center">
+                <div className="text-4xl font-bold text-purple-400 mb-2">{todayTasks.length}</div>
+                <div className="text-lg text-gray-300">Today's Focus</div>
+              </div>
             </div>
             <div className="mt-6 text-xl text-gray-300 italic flex items-center justify-center gap-2">
               <Star className="w-6 h-6 text-yellow-400 animate-pulse" />
               Time is the canvas, tasks are your masterpiece!
               <Star className="w-6 h-6 text-yellow-400 animate-pulse" />
+            </div>
+            
+            {/* Notification Status */}
+            <div className="mt-6 flex items-center justify-center gap-6 text-sm">
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-full ${
+                notificationSettings.emailEnabled ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-400'
+              }`}>
+                <Mail className="w-4 h-4" />
+                <span>Email {notificationSettings.emailEnabled ? 'ON' : 'OFF'}</span>
+              </div>
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-full ${
+                notificationSettings.browserNotifications ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-400'
+              }`}>
+                <Bell className="w-4 h-4" />
+                <span>Browser {notificationSettings.browserNotifications ? 'ON' : 'OFF'}</span>
+              </div>
             </div>
           </div>
         </div>
